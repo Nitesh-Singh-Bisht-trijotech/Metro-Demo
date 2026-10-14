@@ -1,0 +1,13 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+summary::-webkit-details-marker { display: none; }
+@keyframes chetna-pop {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+.chetna-pop { animation: chetna-pop 0.18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .chetna-pop { animation: none; } }
