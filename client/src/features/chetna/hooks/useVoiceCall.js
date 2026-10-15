@@ -184,7 +184,7 @@ export function useVoiceCall({ lang = "en", onTurn }) {
     async function initLiveCall() {
       try {
         setStatus("connecting");
-        setCaption("Connecting to Chetna Voice Live…");
+        setCaption("Connecting to Chetna…");
 
         // Unlock playback context during mount gesture
         await ensurePlaybackContext();
@@ -235,10 +235,11 @@ export function useVoiceCall({ lang = "en", onTurn }) {
             return;
           }
           setConnected(true);
-          setStatus("speaking");
-          setCaption(CALL_TEXT[lang]?.greeting || "Connected to Chetna Live — speak now");
+          // Keep status as connecting until the model actually streams audio or transcript
+          setStatus("connecting");
+          setCaption("Connecting to Chetna…");
 
-          // Trigger initial greeting in selected language
+          // Trigger live model greeting
           ws.send(JSON.stringify({ type: "init", lang }));
 
           // Wire processor into audio graph
@@ -275,6 +276,7 @@ export function useVoiceCall({ lang = "en", onTurn }) {
             } else if (msg.type === "transcript_agent") {
               agentTranscriptRef.current += msg.text;
               setCaption(agentTranscriptRef.current);
+              setStatus("speaking");
             } else if (msg.type === "transcript_agent_final") {
               const text = msg.text || agentTranscriptRef.current;
               setCaption(text);

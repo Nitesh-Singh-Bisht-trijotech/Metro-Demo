@@ -585,6 +585,15 @@ async def text_chat(request: ChatRequest) -> ChatResponse:
 
     from app.agent.instructions import AGENT_INSTRUCTIONS
 
+    text_instructions = (
+        AGENT_INSTRUCTIONS
+        + "\n\n## Text Formatting Guidelines:\n"
+        + "- Always structure your reply with clear paragraphs separated by blank lines.\n"
+        + "- When providing routes, travel steps, or station guidance, use numbered points (e.g., '1. **Boarding Station:** ...') or bullet items, each separated by blank lines so they never cluster together.\n"
+        + "- Bold important station names, metro line colors (e.g. **Airport Express Line**, **Yellow Line**), fares (e.g. **60 rupees**), and journey times.\n"
+        + "- Keep explanations concise, pleasant, and easy to read on mobile and desktop screens."
+    )
+
     # Strictly use the model configured in .env
     model_name = GEMINI_TEXT_MODEL
     response_text = ""
@@ -598,7 +607,7 @@ async def text_chat(request: ChatRequest) -> ChatResponse:
                 model=model_name,
                 contents=request.message,
                 config=genai_types.GenerateContentConfig(
-                    system_instruction=AGENT_INSTRUCTIONS,
+                    system_instruction=text_instructions,
                     temperature=0.7,
                     max_output_tokens=1024,
                 ),
@@ -638,6 +647,15 @@ async def stream_chat(request: ChatRequest):
 
     from app.agent.instructions import AGENT_INSTRUCTIONS
 
+    text_instructions = (
+        AGENT_INSTRUCTIONS
+        + "\n\n## Text Formatting Guidelines:\n"
+        + "- Always structure your reply with clear paragraphs separated by blank lines.\n"
+        + "- When providing routes, travel steps, or station guidance, use numbered points (e.g., '1. **Boarding Station:** ...') or bullet items, each separated by blank lines.\n"
+        + "- Bold important station names, metro line colors, fares, and journey times.\n"
+        + "- Keep explanations concise, pleasant, and easy to read on mobile and desktop screens."
+    )
+
     # Strictly use the model configured in .env
     model_name = GEMINI_TEXT_MODEL
 
@@ -656,7 +674,7 @@ async def stream_chat(request: ChatRequest):
                         model=model_name,
                         contents=request.message,
                         config=genai_types.GenerateContentConfig(
-                            system_instruction=AGENT_INSTRUCTIONS,
+                            system_instruction=text_instructions,
                             temperature=0.7,
                             max_output_tokens=1024,
                         ),

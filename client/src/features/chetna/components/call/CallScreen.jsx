@@ -8,7 +8,7 @@ import { formatTime } from "../../utils/speech";
 import { useChetnaContext } from "../../context/ChetnaContext";
 
 const LABEL = {
-  connecting: "Calling…",
+  connecting: "Connecting to Chetna…",
   listening: "Listening…",
   thinking: "Thinking…",
   speaking: "Chetna is speaking",

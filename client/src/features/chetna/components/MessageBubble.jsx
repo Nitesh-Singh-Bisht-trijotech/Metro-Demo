@@ -1,3 +1,4 @@
+import FormattedMessage from "./FormattedMessage";
 import ChetnaAvatar from "./ChetnaAvatar";
 import FlowForm from "./FlowForm";
 import TypingDots from "./TypingDots";
@@ -58,9 +59,9 @@ export default function MessageBubble({ message }) {
 
   return (
     <BotRow>
-      <p className="inline-block rounded-2xl rounded-bl-sm bg-gray-100 px-3 py-2 text-sm text-dmrc-ink">
-        {message.text}
-      </p>
+      <div className="inline-block rounded-2xl rounded-bl-sm border border-gray-200/80 bg-gray-50/90 px-3.5 py-2.5 text-sm text-dmrc-ink shadow-2xs">
+        <FormattedMessage text={message.text} />
+      </div>
       {message.retry && (
         <div>
           <button
