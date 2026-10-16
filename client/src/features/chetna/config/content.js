@@ -8,14 +8,18 @@ export const STRINGS = {
     placeholder: "Type or use mic to ask a query…",
     book: "Book your ticket online",
     talk: "Talk to Chetna",
+    chat: "Chat with Chetna",
     back: "Back to menu",
+    refresh: "Clear chat and refresh session",
     close: "Close chat",
   },
   hi: {
     placeholder: "प्रश्न लिखें या माइक का उपयोग करें…",
     book: "ऑनलाइन टिकट बुक करें",
     talk: "चेतना से बात करें",
+    chat: "चेतना से चैट करें",
     back: "मेन्यू पर वापस",
+    refresh: "चैट साफ़ करें और नया सत्र शुरू करें",
     close: "चैट बंद करें",
   },
 };

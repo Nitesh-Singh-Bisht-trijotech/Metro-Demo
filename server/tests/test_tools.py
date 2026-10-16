@@ -96,3 +96,69 @@ class TestTransferToHumanTool:
 
         assert isinstance(result, str)
         assert "Transfer request submitted" in result
+
+
+class TestWebSearchTool:
+    """Tests for the web_search tool using Tavily."""
+
+    @patch("tavily.TavilyClient")
+    def test_web_search_success_with_answer_and_sources(self, mock_client_cls):
+        """Test web_search returns formatted answer and sources."""
+        from app.agent.tools import web_search
+
+        mock_instance = MagicMock()
+        mock_client_cls.return_value = mock_instance
+        mock_instance.search.return_value = {
+            "answer": "Fare from Rajiv Chowk to Kashmere Gate is 20 rupees. Distance is 4 km and travel time is 6 minutes.",
+            "results": [
+                {
+                    "title": "Rajiv Chowk to Kashmere Gate Metro Route",
+                    "url": "https://delhimetrorail.info/route",
+                    "content": "Yellow line direct train with 5 stops.",
+                }
+            ],
+        }
+
+        with patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}):
+            with patch("app.config.TAVILY_API_KEY", "test-key"):
+                res = web_search("fare and stops from Rajiv Chowk to Kashmere Gate")
+
+        assert "20 rupees" in res
+        assert "4 km" in res
+        assert "Yellow line" in res
+        assert "Rajiv Chowk to Kashmere Gate Metro Route" in res
+        mock_instance.search.assert_called_once()
+        call_query = mock_instance.search.call_args[1]["query"]
+        assert "Delhi Metro" in call_query
+
+    def test_web_search_empty_query(self):
+        """Test web_search handles empty or whitespace query."""
+        from app.agent.tools import web_search
+
+        res = web_search("   ")
+        assert "valid query" in res.lower()
+
+    def test_web_search_missing_api_key(self):
+        """Test web_search handles missing Tavily API key gracefully."""
+        from app.agent.tools import web_search
+
+        with patch.dict("os.environ", {"TAVILY_API_KEY": ""}):
+            with patch("app.config.TAVILY_API_KEY", ""):
+                res = web_search("Delhi Metro fare from Rajiv Chowk to Kashmere Gate")
+                assert "unavailable" in res.lower() or "not configured" in res.lower()
+
+    @patch("tavily.TavilyClient")
+    def test_web_search_handles_exception(self, mock_client_cls):
+        """Test web_search handles API exceptions gracefully."""
+        from app.agent.tools import web_search
+
+        mock_instance = MagicMock()
+        mock_client_cls.return_value = mock_instance
+        mock_instance.search.side_effect = Exception("Tavily service timeout")
+
+        with patch.dict("os.environ", {"TAVILY_API_KEY": "test-key"}):
+            with patch("app.config.TAVILY_API_KEY", "test-key"):
+                res = web_search("fare from Rajiv Chowk to Kashmere Gate")
+
+        assert "unable to search" in res.lower() or "error" in res.lower()
+

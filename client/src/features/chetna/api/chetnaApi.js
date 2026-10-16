@@ -6,5 +6,5 @@ const api = import.meta.env.VITE_USE_MOCK === "true" ? mock : live;
 export const {
   fetchStations, planJourney, calculateFare, getStationDetails,
   getServiceStatus, bookTicket, reportLostItem, getHelpContacts,
-  askChetna, askChetnaStream,
+  askChetna, askChetnaStream, resetSession,
 } = api;

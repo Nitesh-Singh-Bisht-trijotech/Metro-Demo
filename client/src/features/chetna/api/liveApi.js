@@ -146,3 +146,21 @@ export async function askChetnaStream(message, { lang = "en", channel = "text", 
   if (res.reply) onToken?.(res.reply);
   return res;
 }
+
+export function resetSession() {
+  try {
+    const oldId = sessionStorage.getItem("chetna_thread");
+    const newId = crypto.randomUUID();
+    sessionStorage.setItem("chetna_thread", newId);
+    if (oldId) {
+      http("/api/chat/reset", {
+        method: "POST",
+        body: { session_id: oldId },
+      }).catch(() => {});
+    }
+    return newId;
+  } catch {
+    return "anonymous";
+  }
+}
+

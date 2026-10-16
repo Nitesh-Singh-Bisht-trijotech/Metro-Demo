@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Send } from "lucide-react";
 import ChetnaAvatar from "../ChetnaAvatar";
 import CallControls from "./CallControls";
@@ -27,8 +27,16 @@ export default function CallScreen() {
   const { lang, endCall, logTurn } = useChetnaContext();
   const call = useVoiceCall({ lang, onTurn: logTurn });
   const [typed, setTyped] = useState("");
+  const captionRef = useRef(null);
 
   const pulsing = call.status in RING;
+
+  // Auto-scroll to latest speech transcript while keeping scroll hidden
+  useEffect(() => {
+    if (captionRef.current) {
+      captionRef.current.scrollTop = captionRef.current.scrollHeight;
+    }
+  }, [call.caption, call.error]);
 
   return (
     <div
@@ -44,26 +52,29 @@ export default function CallScreen() {
         </p>
       </div>
 
-      <div className="flex flex-col items-center gap-5">
-        <div className="relative flex h-44 w-44 items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <div className="relative flex h-40 w-40 items-center justify-center">
           {pulsing && (
             <>
               <span className={`absolute inset-0 animate-ping rounded-full motion-reduce:animate-none ${RING[call.status]}`} />
               <span className="absolute -inset-4 animate-pulse rounded-full bg-white/5 motion-reduce:animate-none" />
             </>
           )}
-          <ChetnaAvatar className="h-40 w-40 ring-4 ring-white/30" />
+          <ChetnaAvatar className="h-36 w-36 ring-4 ring-white/30" />
         </div>
 
         <p className="text-sm font-medium text-white/90">{LABEL[call.status]}</p>
         <VoiceBars active={call.status === "speaking" || call.status === "thinking"} />
 
-        <p
+        <div
+          ref={captionRef}
           aria-live="polite"
-          className="min-h-[4.5rem] max-w-xs text-center text-base leading-snug text-white/90"
+          className="h-36 w-full max-w-xs overflow-y-auto px-2 text-center text-sm leading-relaxed text-white/90 no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         >
-          {call.error || call.caption}
-        </p>
+          <div className="flex min-h-full flex-col">
+            <p className="my-auto">{call.error || call.caption}</p>
+          </div>
+        </div>
 
         {call.connected && (
           <form

@@ -7,7 +7,7 @@ import CallScreen from "./call/CallScreen";
 import { useChetnaContext } from "../context/ChetnaContext";
 
 export default function ChetnaPanel() {
-  const { messages, setOpen, calling } = useChetnaContext();
+  const { view, setOpen, calling } = useChetnaContext();
   return (
     <div
       role="dialog"
@@ -17,7 +17,7 @@ export default function ChetnaPanel() {
     >
       <ChetnaHeader />
       <div className="flex-1 overflow-y-auto">
-        {messages.length === 0 ? <HomeView /> : <ChatView />}
+        {view === "home" ? <HomeView /> : <ChatView />}
       </div>
       <ChatInput />
       <PanelFooter />

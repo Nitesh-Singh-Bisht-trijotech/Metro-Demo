@@ -59,6 +59,18 @@ def main():
         help="Chunk overlap for text splitting (default: 150)",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="Maximum chunks to embed and store per batch (default: 100)",
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=60.0,
+        help="Delay in seconds to wait between batches to respect rate limits (default: 60)",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose logging",
@@ -93,6 +105,8 @@ def main():
             max_pages=args.max_pages,
             chunk_size=args.chunk_size,
             chunk_overlap=args.chunk_overlap,
+            batch_size=args.batch_size,
+            delay_seconds=args.delay,
         )
 
         print("\n" + "=" * 60)

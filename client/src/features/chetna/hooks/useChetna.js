@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { askChetnaStream, fetchStations } from "../api/chetnaApi";
+import { askChetnaStream, fetchStations, resetSession as apiResetSession } from "../api/chetnaApi";
 import { FLOWS } from "../config/flows";
 import { formatTime } from "../utils/speech";
 
@@ -17,6 +17,7 @@ export function useChetna() {
   const [busy, setBusy] = useState(false);
   const [stations, setStations] = useState([]);
   const [calling, setCalling] = useState(false);
+  const [view, setView] = useState("home");
 
   // load the station list once, the first time the panel opens
   useEffect(() => {
@@ -67,11 +68,18 @@ export function useChetna() {
     [push]
   );
 
-  const logTurn = useCallback((role, text) => push({ role, kind: "text", text }), [push]);
+  const logTurn = useCallback(
+    (role, text) => {
+      setView("chat");
+      return push({ role, kind: "text", text });
+    },
+    [push]
+  );
 
   /** Run a flow's API call and append the result card. */
   const submitFlow = useCallback(
     async (flowId, values, formId) => {
+      setView("chat");
       const flow = FLOWS[flowId];
       if (formId) patch(formId, { submitted: true });
       if (flow.fields.length) push({ role: "user", kind: "text", text: flow.summarize(values) });
@@ -92,6 +100,7 @@ export function useChetna() {
   /** Begin a flow: echo the user's choice, then show the form (or run it straight away). */
   const startFlow = useCallback(
     (flowId, { echo = true, prefill = {} } = {}) => {
+      setView("chat");
       const flow = FLOWS[flowId];
       if (echo) push({ role: "user", kind: "text", text: flow.label });
       push({ kind: "text", text: flow.intro });
@@ -105,6 +114,7 @@ export function useChetna() {
     async (text) => {
       const q = text.trim();
       if (!q || busy) return;
+      setView("chat");
       push({ role: "user", kind: "text", text: q });
 
       const id = push({ kind: "text", text: "" }); // filled in as tokens arrive
@@ -126,11 +136,42 @@ export function useChetna() {
     [busy, lang, push, patch, startFlow]
   );
 
-  const reset = useCallback(() => setMessages([]), []);
+  /** Toggle or open chat view */
+  const toggleChat = useCallback(() => {
+    if (calling) {
+      setCalling(false);
+      setView("chat");
+      return;
+    }
+    if (view === "chat") {
+      setView("home");
+    } else {
+      if (messages.length === 0) {
+        const welcomeText =
+          lang === "hi"
+            ? "नमस्ते! मैं दिल्ली मेट्रो की चेतना हूँ। आज आपकी मेट्रो यात्रा में मैं क्या मदद कर सकती हूँ — रूट, किराया, स्मार्ट कार्ड या स्टेशन संबंधी जानकारी?"
+            : "Namaste! I'm Chetna from Delhi Metro. How can I help you with your metro journey today, whether it's about routes, fares, smart cards, or stations?";
+        push({ role: "bot", kind: "text", text: welcomeText });
+      }
+      setView("chat");
+    }
+  }, [calling, view, messages.length, lang, push]);
+
+  /** Clears the chat history and refreshes the session */
+  const refreshSession = useCallback(() => {
+    setCalling(false);
+    setBusy(false);
+    setMessages([]);
+    setView("home");
+    apiResetSession();
+  }, []);
+
+  const reset = refreshSession;
 
   return {
     open, setOpen, lang, setLang, messages, busy, stations,
     calling, startCall, endCall, logTurn,
-    startFlow, submitFlow, sendQuery, reset,
+    view, setView, toggleChat,
+    startFlow, submitFlow, sendQuery, reset, refreshSession,
   };
 }

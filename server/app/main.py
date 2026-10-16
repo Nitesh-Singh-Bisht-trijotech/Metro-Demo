@@ -41,7 +41,13 @@ from app.config import (
     log_config_summary,
     validate_config,
 )
-from app.persistence.sessions import get_session_service
+from app.persistence.sessions import (
+    get_active_session_id,
+    get_session_service,
+    reset_active_session,
+    resolve_session_id,
+    set_active_session_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +81,16 @@ class ChatRequest(BaseModel):
             raise ValueError("message must not be blank")
         return message
 
+    @field_validator("session_id", "thread_id")
+    @classmethod
+    def validate_session_ids(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("session_id must not be blank")
+        return v
+
     def get_session_id(self) -> str | None:
         sid = self.session_id or self.thread_id
         if sid:
@@ -91,6 +107,9 @@ class ChatResponse(BaseModel):
     session_id: str
     flow: str | None = None
     suggestions: list[dict] | None = None
+
+class ResetSessionRequest(BaseModel):
+    session_id: str | None = None
 
 
 def detect_metro_flow(msg: str) -> tuple[str | None, list[dict] | None]:
@@ -579,9 +598,41 @@ async def health():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def text_chat(request: ChatRequest) -> ChatResponse:
-    """Single text turn using google.genai directly with GEMINI_TEXT_MODEL from .env."""
+    """Single text turn using Google ADK Runner with session continuity and web search."""
     flow, suggestions = detect_metro_flow(request.message)
-    session_id = request.get_session_id() or str(uuid.uuid4())
+    session_service = get_session_service()
+
+    raw_sid = request.get_session_id()
+    if raw_sid:
+        session = await session_service.get_session(
+            app_name=APP_NAME,
+            user_id=TEXT_API_USER_ID,
+            session_id=raw_sid,
+        )
+        if session is None:
+            resolved_sid = resolve_session_id(raw_sid)
+            if resolved_sid != raw_sid:
+                session = await session_service.get_session(
+                    app_name=APP_NAME,
+                    user_id=TEXT_API_USER_ID,
+                    session_id=resolved_sid,
+                )
+            if session is None:
+                if raw_sid == "unknown":
+                    raise HTTPException(status_code=404, detail="Session not found")
+                session = await session_service.create_session(
+                    app_name=APP_NAME,
+                    user_id=TEXT_API_USER_ID,
+                    session_id=raw_sid,
+                )
+    else:
+        session = await session_service.create_session(
+            app_name=APP_NAME,
+            user_id=TEXT_API_USER_ID,
+        )
+
+    session_id = session.id
+    set_active_session_id(session_id)
 
     from app.agent.instructions import AGENT_INSTRUCTIONS
 
@@ -594,37 +645,62 @@ async def text_chat(request: ChatRequest) -> ChatResponse:
         + "- Keep explanations concise, pleasant, and easy to read on mobile and desktop screens."
     )
 
-    # Strictly use the model configured in .env
-    model_name = GEMINI_TEXT_MODEL
+    agent = create_agent(model=GEMINI_TEXT_MODEL)
+    if hasattr(agent, "instruction"):
+        agent.instruction = text_instructions
+
+    runner = Runner(
+        agent=agent,
+        app_name=APP_NAME,
+        session_service=session_service,
+    )
+
+    content = genai_types.Content(
+        role="user",
+        parts=[genai_types.Part.from_text(text=request.message)],
+    )
+
     response_text = ""
     MAX_RETRIES = 2
     for attempt in range(MAX_RETRIES):
         try:
-            logger.info("text_chat model=%s attempt=%d", model_name, attempt + 1)
-            client = _genai_client()
-            resp = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model_name,
-                contents=request.message,
-                config=genai_types.GenerateContentConfig(
-                    system_instruction=text_instructions,
-                    temperature=0.7,
-                    max_output_tokens=1024,
-                ),
-            )
-            response_text = (resp.text or "").strip()
+            logger.info("text_chat ADK runner attempt=%d session=%s", attempt + 1, session_id)
+            final_text_parts = []
+            all_text_parts = []
+            async for event in runner.run_async(
+                user_id=TEXT_API_USER_ID,
+                session_id=session_id,
+                new_message=content,
+            ):
+                is_final = False
+                if hasattr(event, "is_final_response") and callable(event.is_final_response):
+                    is_final = event.is_final_response()
+
+                if hasattr(event, "content") and event.content and hasattr(event.content, "parts"):
+                    for part in event.content.parts:
+                        txt = getattr(part, "text", None)
+                        if txt:
+                            all_text_parts.append(txt)
+                            if is_final:
+                                final_text_parts.append(txt)
+
+            if final_text_parts:
+                response_text = "".join(final_text_parts).strip()
+            elif all_text_parts:
+                response_text = "".join(all_text_parts).strip()
+
             if response_text:
                 break
         except Exception as err:
             err_str = str(err)
             if "503" in err_str or "UNAVAILABLE" in err_str:
                 if attempt < MAX_RETRIES - 1:
-                    logger.warning("503 on %s attempt %d — retrying in 2s", model_name, attempt + 1)
+                    logger.warning("503 on ADK text_chat attempt %d — retrying in 2s", attempt + 1)
                     await asyncio.sleep(2)
                 else:
-                    logger.warning("503 on %s exhausted", model_name)
+                    logger.warning("503 on ADK text_chat exhausted")
             else:
-                logger.error("Non-retryable error from %s: %s", model_name, err_str)
+                logger.error("Error from ADK text_chat: %s", err_str, exc_info=True)
                 break
 
     if not response_text:
@@ -641,9 +717,41 @@ async def text_chat(request: ChatRequest) -> ChatResponse:
 
 @app.post("/api/chat/stream")
 async def stream_chat(request: ChatRequest):
-    """Streaming SSE chat using google.genai stream with GEMINI_TEXT_MODEL from .env."""
+    """Streaming SSE chat using Google ADK Runner with session continuity and web search."""
     flow, suggestions = detect_metro_flow(request.message)
-    session_id = request.get_session_id() or str(uuid.uuid4())
+    session_service = get_session_service()
+
+    raw_sid = request.get_session_id()
+    if raw_sid:
+        session = await session_service.get_session(
+            app_name=APP_NAME,
+            user_id=TEXT_API_USER_ID,
+            session_id=raw_sid,
+        )
+        if session is None:
+            resolved_sid = resolve_session_id(raw_sid)
+            if resolved_sid != raw_sid:
+                session = await session_service.get_session(
+                    app_name=APP_NAME,
+                    user_id=TEXT_API_USER_ID,
+                    session_id=resolved_sid,
+                )
+            if session is None:
+                if raw_sid == "unknown":
+                    raise HTTPException(status_code=404, detail="Session not found")
+                session = await session_service.create_session(
+                    app_name=APP_NAME,
+                    user_id=TEXT_API_USER_ID,
+                    session_id=raw_sid,
+                )
+    else:
+        session = await session_service.create_session(
+            app_name=APP_NAME,
+            user_id=TEXT_API_USER_ID,
+        )
+
+    session_id = session.id
+    set_active_session_id(session_id)
 
     from app.agent.instructions import AGENT_INSTRUCTIONS
 
@@ -656,52 +764,67 @@ async def stream_chat(request: ChatRequest):
         + "- Keep explanations concise, pleasant, and easy to read on mobile and desktop screens."
     )
 
-    # Strictly use the model configured in .env
-    model_name = GEMINI_TEXT_MODEL
+    agent = create_agent(model=GEMINI_TEXT_MODEL)
+    if hasattr(agent, "instruction"):
+        agent.instruction = text_instructions
+
+    runner = Runner(
+        agent=agent,
+        app_name=APP_NAME,
+        session_service=session_service,
+    )
+
+    content = genai_types.Content(
+        role="user",
+        parts=[genai_types.Part.from_text(text=request.message)],
+    )
 
     async def event_generator():
         full_text = ""
         MAX_RETRIES = 2
         for attempt in range(MAX_RETRIES):
             try:
-                logger.info("stream_chat model=%s attempt=%d", model_name, attempt + 1)
-                client = _genai_client()
+                logger.info("stream_chat ADK runner attempt=%d session=%s", attempt + 1, session_id)
+                streamed_any = False
+                async for event in runner.run_async(
+                    user_id=TEXT_API_USER_ID,
+                    session_id=session_id,
+                    new_message=content,
+                ):
+                    # Check for tool call indications
+                    if hasattr(event, "get_function_calls") and callable(event.get_function_calls):
+                        fcs = event.get_function_calls()
+                        if fcs:
+                            for fc in fcs:
+                                tool_name = getattr(fc, "name", "tool")
+                                if tool_name == "web_search":
+                                    yield f"data: {json.dumps({'type': 'status', 'text': 'Checking real-time metro information…'})}\n\n"
+                                elif tool_name == "search_dmrc_knowledge":
+                                    yield f"data: {json.dumps({'type': 'status', 'text': 'Searching Delhi Metro knowledge…'})}\n\n"
 
-                # google.genai stream is sync — run in thread, collect chunks
-                def _stream():
-                    chunks = []
-                    for chunk in client.models.generate_content_stream(
-                        model=model_name,
-                        contents=request.message,
-                        config=genai_types.GenerateContentConfig(
-                            system_instruction=text_instructions,
-                            temperature=0.7,
-                            max_output_tokens=1024,
-                        ),
-                    ):
-                        chunks.append(chunk.text or "")
-                    return chunks
+                    # Check for text chunks
+                    if hasattr(event, "content") and event.content and hasattr(event.content, "parts"):
+                        for part in event.content.parts:
+                            txt = getattr(part, "text", None)
+                            if txt:
+                                full_text += txt
+                                streamed_any = True
+                                yield f"data: {json.dumps({'type': 'token', 'text': txt})}\n\n"
 
-                chunks = await asyncio.to_thread(_stream)
-                for token in chunks:
-                    if token:
-                        full_text += token
-                        yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
-
-                if full_text.strip():
+                if streamed_any or full_text.strip():
                     break
             except Exception as err:
                 err_str = str(err)
                 if "503" in err_str or "UNAVAILABLE" in err_str:
                     if attempt < MAX_RETRIES - 1:
-                        logger.warning("503 stream %s attempt %d — retrying in 2s", model_name, attempt + 1)
+                        logger.warning("503 stream attempt %d — retrying in 2s", attempt + 1)
                         full_text = ""
                         yield f"data: {json.dumps({'type': 'status', 'text': 'High demand, retrying…'})}\n\n"
                         await asyncio.sleep(2)
                     else:
-                        logger.warning("503 stream %s exhausted", model_name)
+                        logger.warning("503 stream exhausted")
                 else:
-                    logger.error("Non-retryable stream error from %s: %s", model_name, err_str)
+                    logger.error("Non-retryable stream error from ADK runner: %s", err_str, exc_info=True)
                     break
 
         if not full_text.strip():
@@ -729,6 +852,33 @@ async def stream_chat(request: ChatRequest):
     )
 
 
+@app.post("/api/chat/reset")
+async def reset_chat_session(req: ResetSessionRequest | None = None):
+    """Clear session state and history for the given session_id."""
+    raw_sid = req.session_id if req else None
+    session_service = get_session_service()
+
+    target_ids = []
+    if raw_sid:
+        target_ids.append(raw_sid)
+    active_sid = get_active_session_id()
+    if active_sid and active_sid not in target_ids:
+        target_ids.append(active_sid)
+
+    for sid in target_ids:
+        try:
+            await session_service.delete_session(
+                app_name=APP_NAME,
+                user_id=TEXT_API_USER_ID,
+                session_id=sid,
+            )
+            logger.info("Session %s reset/deleted successfully.", sid)
+        except Exception as err:
+            logger.warning("Could not delete session %s: %s", sid, err)
+
+    reset_active_session(raw_sid)
+    return {"status": "ok", "message": "Session reset successfully"}
+
 
 @app.websocket("/ws/audio")
 async def websocket_audio_endpoint(websocket: WebSocket):
@@ -741,30 +891,29 @@ async def websocket_audio_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("WebSocket connection accepted.")
 
-    session_id = str(uuid.uuid4())
-    user_id = "web_user"
+    raw_sid = websocket.query_params.get("session_id")
+    session_id = resolve_session_id(raw_sid)
+    user_id = TEXT_API_USER_ID
 
     try:
         # Create agent and runner
-        agent = create_agent()
+        agent = create_agent(model=GEMINI_LIVE_MODEL)
         session_service = get_session_service()
 
-        # Create a new session with resilient in-memory fallback
-        try:
+        session = await session_service.get_session(
+            app_name=APP_NAME,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        if session is None:
             session = await session_service.create_session(
                 app_name=APP_NAME,
                 user_id=user_id,
-            )
-        except Exception as sess_err:
-            logger.warning("Database session creation failed (%s). Using InMemorySessionService for voice.", sess_err)
-            from google.adk.sessions import InMemorySessionService
-            session_service = InMemorySessionService()
-            session = await session_service.create_session(
-                app_name=APP_NAME,
-                user_id=user_id,
+                session_id=session_id,
             )
         session_id = session.id
-        logger.info("Session created: %s", session_id)
+        set_active_session_id(session_id)
+        logger.info("WebSocket connected using session: %s", session_id)
 
         runner = Runner(
             agent=agent,
