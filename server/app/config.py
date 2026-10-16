@@ -53,6 +53,7 @@ def _clean_model_name(val: str | None, default: str) -> str:
 
 # --- API Keys ---
 GEMINI_API_KEY: str = (_get_env("GEMINI_API_KEY", "GOOGLE_STUDIO_API", "GOOGLE_API_KEY") or "").strip().strip('"').strip("'")
+TAVILY_API_KEY: str = (_get_env("TAVILY_API_KEY") or "").strip().strip('"').strip("'")
 
 # --- Model Configuration ---
 GEMINI_LIVE_MODEL: str = _clean_model_name(_get_env("GEMINI_LIVE_MODEL"), default="gemini-2.0-flash-live-001")
@@ -143,3 +144,4 @@ def log_config_summary() -> None:
     logger.info("  LANGSMITH_TRACING: %s", LANGSMITH_TRACING)
     logger.info("  DB connected: %s", "Yes" if SUPABASE_DATABASE_URL else "No")
     logger.info("  GEMINI_API_KEY set: %s", "Yes" if GEMINI_API_KEY else "No")
+    logger.info("  TAVILY_API_KEY set: %s", "Yes" if TAVILY_API_KEY else "No")

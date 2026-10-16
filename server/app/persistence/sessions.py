@@ -143,16 +143,70 @@ class ResilientSessionService(BaseSessionService):
         return await self._in_memory.append_event(session, event)
 
 
+_session_service: Optional[InMemorySessionService] = None
+_active_session_id: Optional[str] = None
+_session_aliases: dict[str, str] = {}
+
+
 def get_session_service() -> BaseSessionService:
-    """Get or create the resilient ADK SessionService."""
+    """Get or create the shared in-memory ADK SessionService."""
     global _session_service
     if _session_service is None:
-        db_url = get_async_database_url()
-        _session_service = ResilientSessionService(db_url=db_url)
+        _session_service = InMemorySessionService()
     return _session_service
 
 
 def reset_session_service() -> None:
     """Reset the cached session service."""
-    global _session_service
+    global _session_service, _active_session_id, _session_aliases
     _session_service = None
+    _active_session_id = None
+    _session_aliases.clear()
+
+
+def set_active_session_id(session_id: str) -> None:
+    """Set the currently active in-memory session ID."""
+    global _active_session_id
+    _active_session_id = session_id
+
+
+def get_active_session_id() -> Optional[str]:
+    """Get the currently active in-memory session ID."""
+    return _active_session_id
+
+
+def resolve_session_id(session_id: Optional[str] = None) -> str:
+    """Resolve a session_id, linking it with the active session so voice & text share context."""
+    import uuid
+
+    global _active_session_id
+    if not session_id or not session_id.strip():
+        if not _active_session_id:
+            _active_session_id = str(uuid.uuid4())
+        return _active_session_id
+
+    sid = session_id.strip()
+    if sid in _session_aliases:
+        return _session_aliases[sid]
+
+    if _active_session_id and _active_session_id != sid:
+        # Link incoming session_id as alias to the active session so voice and text share context
+        _session_aliases[sid] = _active_session_id
+        return _active_session_id
+
+    _active_session_id = sid
+    return sid
+
+
+def reset_active_session(session_id: Optional[str] = None) -> None:
+    """Reset the active session tracking."""
+    global _active_session_id, _session_aliases
+    if session_id:
+        sid = session_id.strip()
+        resolved = _session_aliases.get(sid, sid)
+        _session_aliases.pop(sid, None)
+        if _active_session_id in (resolved, sid):
+            _active_session_id = None
+    else:
+        _active_session_id = None
+        _session_aliases.clear()

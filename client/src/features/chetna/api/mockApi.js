@@ -250,3 +250,7 @@ export async function askChetnaStream(query, { lang = "en", onToken } = {}) {
   onToken?.(res.reply);
   return res;
 }
+
+export function resetSession() {
+  return "mock-session-reset";
+}

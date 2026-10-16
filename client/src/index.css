@@ -11,3 +11,12 @@ summary::-webkit-details-marker { display: none; }
 }
 .chetna-pop { animation: chetna-pop 0.18s ease-out; }
 @media (prefers-reduced-motion: reduce) { .chetna-pop { animation: none; } }
+
+/* Hide scrollbar utility for hidden scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

@@ -253,3 +253,45 @@ class TestMarkdownIngestion:
 
         with pytest.raises(FileNotFoundError, match="Markdown file not found"):
             build_knowledge_base_from_markdown(tmp_path / "missing.md")
+
+    @patch("app.ingestion.pipeline.time.sleep")
+    @patch("app.ingestion.pipeline.verify_hnsw_index", return_value=True)
+    @patch("app.ingestion.pipeline.get_vector_store")
+    @patch("app.ingestion.pipeline.init_vector_store_table")
+    @patch("app.ingestion.pipeline.ensure_pgvector_extension")
+    def test_markdown_batched_ingestion_waits_between_batches(
+        self,
+        mock_ensure_extension,
+        mock_init_table,
+        mock_get_vector_store,
+        mock_verify_index,
+        mock_sleep,
+        tmp_path,
+    ):
+        """Chunks exceeding batch_size are processed in batches with delay."""
+        from app.ingestion.pipeline import build_knowledge_base_from_markdown
+
+        markdown_path = tmp_path / "large_doc.md"
+        # Create enough content for multiple chunks
+        markdown_path.write_text("DMRC Metro station facilities details. " * 50, encoding="utf-8")
+        vector_store = MagicMock()
+        mock_get_vector_store.return_value = vector_store
+
+        summary = build_knowledge_base_from_markdown(
+            markdown_path,
+            chunk_size=50,
+            chunk_overlap=5,
+            batch_size=2,
+            delay_seconds=60.0,
+        )
+
+        assert summary["status"] == "success"
+        num_chunks = summary["chunks_created"]
+        assert num_chunks > 2
+        expected_batches = (num_chunks + 1) // 2
+
+        assert vector_store.add_documents.call_count == expected_batches
+        # sleep should be called between batches (expected_batches - 1 times)
+        assert mock_sleep.call_count == expected_batches - 1
+        mock_sleep.assert_called_with(60.0)
+

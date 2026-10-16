@@ -290,7 +290,8 @@ export function useVoiceCall({ lang = "en", onTurn }) {
               }
               agentTranscriptRef.current = "";
             } else if (msg.type === "tool_call") {
-              setCaption(`Checking metro updates for ${msg.tool}…`);
+              // setCaption(`Checking metro updates for ${msg.tool}…`);
+              setCaption(`Checking metro updates…`);
               setStatus("thinking");
             } else if (msg.type === "error") {
               setError(msg.message);
